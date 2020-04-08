@@ -1,0 +1,165 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+#matplotlib inline
+from urllib.request import urlopen
+from bs4 import BeautifulSoup
+url = "http://www.hubertiming.com/results/2017GPTR10K"
+html = urlopen(url)
+soup = BeautifulSoup(html, 'lxml')
+type(soup)
+
+# Get the title
+title = soup.title
+print(title)
+
+# Print out the text
+text = soup.get_text()
+#print(soup.text)
+"""
+You can use the find_all() method of soup to extract useful html tags within a webpage.
+Examples of useful tags include < a > for hyperlinks, < table > for tables,
+< tr > for table rows, < th > for table headers, and < td > for table cells.
+The code below shows how to extract all the hyperlinks within the webpage.
+"""
+soup.find_all('a')
+"""
+As you can see from the output above, html tags sometimes come with attributes such as class, src, etc
+These attributes provide additional information about html elements.
+You can use a for loop and the get('"href") method to extract and print out only hyperlinks.
+"""
+
+all_links = soup.find_all("a")
+for link in all_links:
+    print(link.get("href"))
+
+# Print the first 10 rows for sanity check
+rows = soup.find_all('tr')
+print(rows[:10])
+"""
+#finding all rows
+for row in rows:
+    row_td = row.find_all('td')
+#getting rid of html tag and using only texts
+    str_cells = str(row_td)
+    cleantext = BeautifulSoup(str_cells, "lxml").get_text()
+    print(cleantext)
+"""
+import re
+
+list_rows = []
+for row in rows:
+    cells = row.find_all('td')
+    str_cells = str(cells)
+    clean = re.compile('<.*?>')
+    clean2 = (re.sub(clean, '',str_cells))
+    list_rows.append(clean2)
+    
+#convert list to dataframe
+df = pd.DataFrame(list_rows)
+df.head(10)    
+#splitting commas
+df1 = df[0].str.split(',', expand=True)
+df1.head(10)
+
+#Removing brackets
+df1[0] = df1[0].str.strip('[')
+df1.head(10)
+
+#let's add table headers
+col_labels = soup.find_all('th')
+all_header = []
+col_str = str(col_labels)
+cleantext2 = BeautifulSoup(col_str, "lxml").get_text()
+all_header.append(cleantext2)
+
+#convert headers to dataframe
+df2 = pd.DataFrame(all_header)
+df2.head()
+#similarly, separate by commas
+df3 = df2[0].str.split(',', expand=True)
+
+#join rows and table header dataframes together
+frames = [df3, df1]
+df4 = pd.concat(frames)
+df4.head(10)
+
+#Below shows how to assign the first row to be the table header.
+df5 = df4.rename(columns=df4.iloc[0])
+#The table has 597 rows and 14 columns. You can drop all rows with any missing values.
+df6 = df5.dropna(axis=0, how='any')
+
+#Also, notice how the table header is replicated as the first row in df5.
+#It can be dropped using the following line of code.
+df7 = df6.drop(df6.index[0])
+#rename place and team appropriately
+df7.rename(columns={'[Place': 'Place'},inplace=True)
+df7.rename(columns={' Team]': 'Team'},inplace=True)
+
+#The final data cleaning step involves removing the closing bracket for cells in the "Team" column.
+df7['Team'] = df7['Team'].str.strip(']')
+"""
+The first question to answer is, what was the average finish time (in minutes) for the runners?
+You need to convert the column "Chip Time" into just minutes.
+One way to do this is to convert the column to a list first for manipulation.
+"""
+time_list = df7[' Chip Time'].tolist()
+from datetime import datetime, timedelta
+# You can use a for loop to convert 'Chip Time' to minutes
+time_mins = []
+for i in time_list:
+    #taking care of Python's ignored '00:' hour for minutes and seconds
+    time = i.split(":")
+    if int(time[0])<=1:
+       h, m, s = i.split(':')
+       math = (int(h) * 3600 + int(m) * 60 + int(s))/60
+    else:
+       m, s = i.split(':')
+       math = (int(m) * 60 + int(s))/60
+    time_mins.append(math)
+#add to dataframe
+df7['Runner_mins'] = time_mins
+#The code below shows how to calculate statistics for numeric columns only in the dataframe.
+df7.describe(include=[np.number])
+
+#A boxplot is another useful tool to visualize summary statistics
+#(maximum, minimum, medium, first quartile, third quartile, including outliers)
+from pylab import rcParams
+rcParams['figure.figsize'] = 15, 5
+df7.boxplot(column='Runner_mins')
+plt.grid(True, axis='y')
+plt.ylabel('Chip Time')
+plt.xticks([1], ['Runners'])
+
+#convert dataframe to csv file
+df7.to_csv (r'C:\Users\maximus\Desktop\Data Science Training\Web Scrapping\export_dataframe.csv', index = False, header=True)
+
+#check if it follows a normal distribution
+x = df7['Runner_mins']
+ax = sns.distplot(x, hist=True, kde=True, rug=False, color='m', bins=25, hist_kws={'edgecolor':'black'})
+plt.show()
+"""
+The third question deals with whether there were any performance differences between males and females
+of various age groups. Below is a distribution plot of chip times for males and females.
+"""
+f_fuko = df7.loc[df7[' Gender']==' F']['Runner_mins']
+m_fuko = df7.loc[df7[' Gender']==' M']['Runner_mins']
+sns.distplot(f_fuko, hist=True, kde=True, rug=False, hist_kws={'edgecolor':'black'}, label='Female')
+sns.distplot(m_fuko, hist=False, kde=True, rug=False, hist_kws={'edgecolor':'black'}, label='Male')
+plt.legend()
+"""
+The distribution indicates that females were slower than males on average.
+We can use the groupby() method to compute summary statistics for males and females separately
+as shown below.
+"""
+g_stats = df7.groupby(" Gender", as_index=True).describe()
+print(g_stats)
+
+"""
+The average chip time for all females and males was ~66 mins and ~58 mins, respectively.
+Below is a side-by-side boxplot comparison of male and female finish times.
+"""
+df7.boxplot(column='Runner_mins', by=' Gender')
+plt.ylabel('Chip Time')
+plt.suptitle("")
